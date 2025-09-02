@@ -1,0 +1,28 @@
+---
+- name: Minimal bootstrap converge
+  hosts: admin
+  become: true
+
+  tasks:
+    - name: Ensure basic packages are installed
+      apt:
+        name:
+          - git
+          - ansible
+          - curl
+          - ufw
+          - fail2ban
+        state: present
+        update_cache: true
+
+    - name: Enable UFW with SSH
+      ufw:
+        rule: allow
+        port: 22
+        proto: tcp
+
+    - name: Ensure UFW enabled
+      ufw:
+        state: enabled
+        policy: deny
+

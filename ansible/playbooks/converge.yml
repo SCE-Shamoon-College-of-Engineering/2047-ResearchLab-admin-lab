@@ -1,0 +1,15 @@
+---
+- name: Full admin server converge
+  hosts: admin
+  become: true
+
+  roles:
+    - base_hardening
+    - dnsmasq
+    - httpd
+    - apt_cacher
+    - nfs_server
+    - k3s_server
+    - monitoring_stack
+    - logging_stack
+
