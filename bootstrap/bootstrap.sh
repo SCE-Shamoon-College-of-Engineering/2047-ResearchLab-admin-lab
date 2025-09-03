@@ -20,12 +20,16 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y git ansible curl
 mkdir -p "$STATE_DIR"
 touch "$ANSIBLE_PULL_LOG"
 
+# --- GIT SYNC (best-effort) ---
 if [[ -d "$REPO_DIR/.git" ]]; then
-  git -C "$REPO_DIR" fetch --all
-  git -C "$REPO_DIR" reset --hard "origin/${BRANCH}"
+  # without net/private repo 
+  git -C "$REPO_DIR" fetch --all || true
+  git -C "$REPO_DIR" reset --hard "origin/${BRANCH}" || true
 else
-  git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+  mkdir -p "$(dirname "$REPO_DIR")"
+  git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR" || true
 fi
+
 
 cat > /etc/systemd/system/2047-firstboot.service <<EOF
 [Unit]
