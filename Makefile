@@ -1,4 +1,4 @@
-# --- 2047 admin-lab Makefile (final) ---
+# --- 2047 admin-lab Makefile (final+) ---
 SHELL       := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 .ONESHELL:
@@ -9,10 +9,12 @@ SRC_DIR  ?= $(CURDIR)
 
 REPO_HTTPS := https://github.com/SCE-Shamoon-College-of-Engineering/2047-ResearchLab-admin-lab.git
 
-.PHONY: help env-check q install move run bootstrap minimal converge logs verify lint pull deploy
+.PHONY: help env-check q install move run bootstrap \
+        minimal converge logs verify lint pull deploy \
+        enable-units restart-units status-units
 
 help: ## показать цели
-	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 env-check: ## проверки окружения (патчить не нужно)
 	@command -v rsync >/dev/null || { echo "rsync не найден. Запусти: make install"; exit 1; }
@@ -35,16 +37,21 @@ run: ## запустить bootstrap из /opt
 
 bootstrap: q ## синоним
 
-# --- удобные задачи для сервера ---
+# --- обновление кода на сервере ---
 
-pull: ## git pull из GitHub (HTTPS). Использует $GIT_AUTH_TOKEN или ~/.netrc
+pull: ## безопасный pull: fetch + hard reset (исп. $GIT_AUTH_TOKEN или ~/.netrc)
+	@if [ ! -d .git ]; then echo "✗ не git-репозиторий: $(PWD)"; exit 1; fi
 	@if [ -n "$$GIT_AUTH_TOKEN" ]; then \
 		echo "• pull через токен из \$GIT_AUTH_TOKEN"; \
-		git pull "https://$$GIT_AUTH_TOKEN@github.com/SCE-Shamoon-College-of-Engineering/2047-ResearchLab-admin-lab.git" "$(BRANCH)"; \
+		REMOTE="https://$$GIT_AUTH_TOKEN@github.com/SCE-Shamoon-College-of-Engineering/2047-ResearchLab-admin-lab.git"; \
 	else \
-		echo "• pull через ~/.netrc или интерактивную авторизацию"; \
-		git pull "$(REPO_HTTPS)" "$(BRANCH)"; \
-	fi
+		echo "• pull через $(REPO_HTTPS)"; \
+		REMOTE="$(REPO_HTTPS)"; \
+	fi; \
+	git remote set-url origin "$$REMOTE" || true; \
+	git fetch --prune origin; \
+	git reset --hard "origin/$(BRANCH)"; \
+	git rev-parse --short HEAD | xargs -I{} echo "✓ на коммите {}"
 
 deploy: ## обновить код из GitHub и прогнать установку (pull → q)
 	$(MAKE) pull BRANCH=$(BRANCH)
@@ -67,6 +74,18 @@ verify: ## проверить наличие systemd-юнитов и файло�
 	@echo ">>> units"; sudo systemctl list-unit-files | grep -E '2047-(firstboot|converge)' || true
 	@echo ">>> repo in /opt"; ls -lah "$(REPO_DIR)/ansible" || true
 	@echo ">>> state dir"; ls -lah /etc/2047 || true
+
+enable-units: ## включить юниты в автозагрузку
+	sudo systemctl enable 2047-firstboot.service 2047-converge.service 2047-converge.timer || true
+
+restart-units: ## перезапустить юниты
+	sudo systemctl daemon-reload
+	sudo systemctl restart 2047-firstboot.service || true
+	sudo systemctl restart 2047-converge.service  || true
+
+status-units: ## статус юнитов
+	sudo systemctl status --no-pager -l 2047-firstboot.service || true
+	sudo systemctl status --no-pager -l 2047-converge.service  || true
 
 lint: ## линт ansible (если установлен ansible-lint)
 	ansible-lint ansible/ || true
