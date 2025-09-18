@@ -1,0 +1,107 @@
+# Minimal Ansible Project for Lab PXE Server Setup
+
+# Inventory file (inventory.ini)
+
+[labserver]
+192.168.1.10 ansible_ssh_user=youradmin ansible_ssh_pass=yourpassword
+
+---
+
+# Main Playbook (configure_lab_server.yaml)
+
+- name: Configure Lab PXE Server
+  hosts: labserver
+  become: yes
+
+  vars:
+    network_interface: enp0s3
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - dnsmasq
+          - apache2
+          - syslinux-common
+        state: present
+        update_cache: yes
+
+    - name: Configure dnsmasq
+      copy:
+        dest: /etc/dnsmasq.conf
+        content: |
+          interface={{ network_interface }}
+          dhcp-range=192.168.1.100,192.168.1.200,12h
+          dhcp-boot=pxelinux.0
+          enable-tftp
+          tftp-root=/srv/tftp
+          pxe-service=x86PC, "PXE Boot", pxelinux
+
+    - name: Create PXE boot directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /srv/tftp
+        - /srv/tftp/pxelinux.cfg
+        - /srv/tftp/ubuntu
+        - /var/www/html/autoinstall
+
+    - name: Copy PXE boot files
+      copy:
+        src: /usr/lib/PXELINUX/pxelinux.0
+        dest: /srv/tftp/pxelinux.0
+
+    - name: Download kernel and initrd
+      get_url:
+        url: "{{ item.url }}"
+        dest: "{{ item.dest }}"
+      loop:
+        - { url: "http://archive.ubuntu.com/ubuntu/dists/noble/main/installer-amd64/current/legacy-images/netboot/ubuntu-installer/amd64/linux", dest: "/srv/tftp/ubuntu/vmlinuz" }
+        - { url: "http://archive.ubuntu.com/ubuntu/dists/noble/main/installer-amd64/current/legacy-images/netboot/ubuntu-installer/amd64/initrd.gz", dest: "/srv/tftp/ubuntu/initrd" }
+
+    - name: Deploy PXE default menu
+      copy:
+        dest: /srv/tftp/pxelinux.cfg/default
+        content: |
+          DEFAULT install
+          LABEL install
+            KERNEL ubuntu/vmlinuz
+            INITRD ubuntu/initrd
+            APPEND ip=dhcp url=http://{{ ansible_default_ipv4.address }}/autoinstall/ubuntu-base.iso autoinstall ds=nocloud-net;s=http://{{ ansible_default_ipv4.address }}/autoinstall/
+
+    - name: Deploy autoinstall files
+      copy:
+        src: files/user-data
+        dest: /var/www/html/autoinstall/user-data
+    - copy:
+        src: files/meta-data
+        dest: /var/www/html/autoinstall/meta-data
+
+    - name: Restart services
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      loop:
+        - dnsmasq
+        - apache2
+
+---
+
+# Directory Structure:
+#
+# ansible-project/
+#   |- inventory.ini
+#   |- configure_lab_server.yaml
+#   |- files/
+#        |- user-data
+#        |- meta-data
+
+---
+
+# Notes:
+# - Replace "youradmin" and "yourpassword" in inventory.ini with real credentials.
+# - Place the autoinstall user-data and meta-data files inside the 'files/' directory.
+# - Adjust the network interface if needed (default is enp0s3).
