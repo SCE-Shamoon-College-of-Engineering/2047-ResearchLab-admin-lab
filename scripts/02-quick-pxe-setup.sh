@@ -32,8 +32,8 @@ apt install -y \
     curl \
     vim \
     htop \
-    net-tools
-
+    net-tools \
+    rsync
 # Create directories
 echo "📁 Creating directory structure..."
 mkdir -p /srv/tftp/grub
@@ -103,7 +103,7 @@ echo "y" | ufw enable || true
 # Download GRUB EFI
 echo "⬇️  Installing GRUB EFI bootloader..."
 apt install -y grub-efi-amd64-bin
-cp /usr/lib/grub/x86_64-efi/grubx64.efi /srv/tftp/
+cp /usr/lib/grub/x86_64-efi/monolithic/grubx64.efi /srv/tftp/
 
 # Create GRUB config
 echo "⚙️  Creating GRUB boot menu..."

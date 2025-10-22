@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-ISO_URL="https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso"
+ISO_URL="https://ubuntu.interhost.co.il/noble/ubuntu-24.04.3-desktop-amd64.iso"
 ISO_PATH="/tmp/ubuntu-24.04-desktop.iso"
 MOUNT_POINT="/mnt/ubuntu-iso"
 TARGET_DIR="/var/www/html/ubuntu"
@@ -43,8 +43,8 @@ cp "$TARGET_DIR/casper/initrd" "$TFTP_DIR/"
 
 # Unmount
 echo "📤 Unmounting ISO..."
-umount "$MOUNT_POINT"
-rmdir "$MOUNT_POINT"
+umount "$MOUNT_POINT" 2>/dev/null || true
+rmdir "$MOUNT_POINT" 2>/dev/null || true
 
 # Set permissions
 chown -R www-data:www-data "$TARGET_DIR"
