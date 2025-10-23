@@ -1,0 +1,2 @@
+# Extra options passed by systemd service to dnsmasq
+DNSMASQ_OPTS="--interface=enp0s31f6 --bind-interfaces"

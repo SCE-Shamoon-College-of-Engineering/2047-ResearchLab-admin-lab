@@ -2,9 +2,12 @@
 set -euo pipefail
 
 HTTP_IP="${HTTP_IP:-192.168.1.250}"   # IP PXE сервера
+NIC_NAME="${NIC_NAME:-enp0s31f6}" 
+
 WWW_ROOT="/var/www/html"
 TFTP_ROOT="/srv/tftp"
 DNSMASQ_D="/etc/dnsmasq.d"
+DNSMASQ_DEF="/etc/default/dnsmasq"
 
 echo "[*] Installing packages (dnsmasq, apache2, curl)..."
 export DEBIAN_FRONTEND=noninteractive
@@ -14,6 +17,7 @@ apt-get install -y dnsmasq apache2 curl
 echo "[*] Configure dnsmasq for HTTP-boot..."
 install -m 0644 -o root -g root "configs/pxe-http.conf" "${DNSMASQ_D}/pxe-http.conf"
 sed -i "s|192.168.1.250|${HTTP_IP}|g" "${DNSMASQ_D}/pxe-http.conf"
+sed -i "s|interface=enp0s31f6|interface=${NIC_NAME}|g" "${DNSMASQ_D}/pxe-http.conf"
 
 echo "[*] Prepare TFTP and HTTP trees..."
 mkdir -p "${TFTP_ROOT}" "${WWW_ROOT}/EFI/BOOT" "${WWW_ROOT}/ubuntu" "${WWW_ROOT}/autoinstall"
