@@ -24,6 +24,22 @@ sed -i "s|enp0s31f6|${NIC_NAME:-enp0s31f6}|g" /etc/default/dnsmasq
 echo "[*] Prepare TFTP and HTTP trees..."
 mkdir -p "${TFTP_ROOT}" "${WWW_ROOT}/EFI/BOOT" "${WWW_ROOT}/ubuntu" "${WWW_ROOT}/autoinstall"
 install -m 0644 -o nobody -g nogroup "tftp/grub.cfg" "${TFTP_ROOT}/grub.cfg"
+# Install ipxe for UEFI TFTP fallback
+apt-get install -y ipxe
+
+# Ensure TFTP/HTTP trees exist
+mkdir -p "${TFTP_ROOT}" "${WWW_ROOT}/EFI/BOOT" "${WWW_ROOT}/ubuntu" "${WWW_ROOT}/autoinstall"
+
+# Place iPXE EFI loader to TFTP
+# On Ubuntu, ipxe.efi is here:
+if [ -f /usr/lib/ipxe/ipxe.efi ]; then
+  install -m 0644 -o nobody -g nogroup /usr/lib/ipxe/ipxe.efi "${TFTP_ROOT}/ipxe.efi"
+else
+  echo "[!] /usr/lib/ipxe/ipxe.efi not found; install package 'ipxe'"
+fi
+
+# Place the iPXE script (HTTP)
+install -m 0644 -o www-data -g www-data "www/boot.ipxe" "${WWW_ROOT}/boot.ipxe"
 
 # Попробуем взять системный grubx64.efi (путь может отличаться на разных дистрибутивах)
 GRUB_SRC=""
