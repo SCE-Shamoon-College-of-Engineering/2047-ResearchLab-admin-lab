@@ -21,6 +21,21 @@ sed -i "s|interface=enp0s31f6|interface=${NIC_NAME}|g" "${DNSMASQ_D}/pxe-http.co
 install -m 0644 -o root -g root configs/dnsmasq.default /etc/default/dnsmasq
 sed -i "s|enp0s31f6|${NIC_NAME:-enp0s31f6}|g" /etc/default/dnsmasq
 
+# Apply dnsmasq config
+install -m 0644 -o root -g root "configs/pxe-http.conf" "/etc/dnsmasq.d/pxe-http.conf"
+
+# Force systemd to use ONLY our config
+mkdir -p /etc/systemd/system/dnsmasq.service.d
+install -m 0644 -o root -g root "configs/systemd/dnsmasq-override.conf" "/etc/systemd/system/dnsmasq.service.d/override.conf"
+systemctl daemon-reload
+
+# iPXE fallback for legacy PXE clients
+apt-get install -y ipxe
+install -m 0644 -o nobody  -g nogroup /usr/lib/ipxe/ipxe.efi "/srv/tftp/ipxe.efi"
+
+# iPXE script over HTTP
+install -m 0644 -o www-data -g www-data "www/boot.ipxe" "/var/www/html/boot.ipxe"
+
 echo "[*] Prepare TFTP and HTTP trees..."
 mkdir -p "${TFTP_ROOT}" "${WWW_ROOT}/EFI/BOOT" "${WWW_ROOT}/ubuntu" "${WWW_ROOT}/autoinstall"
 install -m 0644 -o nobody -g nogroup "tftp/grub.cfg" "${TFTP_ROOT}/grub.cfg"
