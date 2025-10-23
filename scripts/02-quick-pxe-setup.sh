@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Can be overridden by Make target: make pxe-http PXE_HTTP_IP=...
+# ------------------------------
+# Quick PXE HTTP setup for lab
+# - Proxy-DHCP (port 4011) via dnsmasq (no full DHCP; Fortigate is the DHCP server)
+# - HTTPBoot/iPXE over Apache
+# - Kernel/initrd served from /var/www/html/ubuntu (symlinks to casper/*)
+# ------------------------------
+
+# May be overridden by Make: make pxe-http PXE_HTTP_IP=... NIC_NAME=...
 HTTP_IP="${HTTP_IP:-192.168.1.250}"
 NIC_NAME="${NIC_NAME:-enp0s31f6}"
 
@@ -20,7 +27,7 @@ install -m 0644 -o root -g root "configs/pxe-http.conf" "${DNSMASQ_D}/pxe-http.c
 sed -i "s|192.168.1.250|${HTTP_IP}|g" "${DNSMASQ_D}/pxe-http.conf"
 sed -i "s|interface=enp0s31f6|interface=${NIC_NAME}|g" "${DNSMASQ_D}/pxe-http.conf"
 
-# Ensure service uses sane defaults (no custom override unit)
+# Ensure service uses sane defaults and correct NIC
 install -m 0644 -o root -g root "configs/dnsmasq.default" "${DNSMASQ_DEF}"
 sed -i "s|enp0s31f6|${NIC_NAME}|g" "${DNSMASQ_DEF}"
 
@@ -31,7 +38,7 @@ systemctl daemon-reload
 echo "[*] Prepare HTTP/TFTP trees..."
 mkdir -p "${WWW_ROOT}/EFI/BOOT" "${WWW_ROOT}/ubuntu" "${WWW_ROOT}/autoinstall" "${TFTP_ROOT}"
 
-# Place iPXE fallback loader (UEFI) via TFTP
+# Place iPXE fallback loader (UEFI) via TFTP (for clients that do PXE->iPXE chain)
 if [ -f /usr/lib/ipxe/ipxe.efi ]; then
   install -m 0644 -o nobody -g nogroup /usr/lib/ipxe/ipxe.efi "${TFTP_ROOT}/ipxe.efi"
 fi
@@ -39,60 +46,56 @@ fi
 # Ensure iPXE script is in HTTP root
 install -m 0644 -o www-data -g www-data "www/boot.ipxe" "${WWW_ROOT}/boot.ipxe"
 
-# --- Kernel/initrd provisioning for HTTP and TFTP ---
-ISO_PATH="/tmp/ubuntu-24.04.1-live-server-amd64.iso"  # use server ISO for autoinstall
-MNT_DIR="/mnt/ubuntu-iso"
-
-mkdir -p "${WWW_ROOT}/ubuntu" "${TFTP_ROOT}/ubuntu"
-
-# If kernel already present, keep it (idempotent run)
-if [ ! -f "${WWW_ROOT}/ubuntu/vmlinuz" ] || [ ! -f "${WWW_ROOT}/ubuntu/initrd" ]; then
-  echo "[*] Kernel/initrd not found under ${WWW_ROOT}/ubuntu - ensuring ISO is available..."
-  if [ ! -f "${ISO_PATH}" ]; then
-    echo "[*] Downloading Ubuntu 24.04.1 live-server ISO (approx 2.2GB)..."
-    # Official mirrors; pick one that works in your network. Fallbacks are chained with '||'
-    curl -L --fail -o "${ISO_PATH}" \
-      "https://releases.ubuntu.com/24.04/ubuntu-24.04.1-live-server-amd64.iso" \
-      || curl -L --fail -o "${ISO_PATH}" \
-      "http://cdimage.ubuntu.com/releases/24.04/release/ubuntu-24.04.1-live-server-amd64.iso"
-  fi
-
-  echo "[*] Mounting ISO ${ISO_PATH}..."
-  mkdir -p "${MNT_DIR}"
-  # mount may already be active from previous runs; ignore errors
-  mount -o loop,ro "${ISO_PATH}" "${MNT_DIR}" || true
-
-  echo "[*] Copying kernel and initrd from ISO casper/ to HTTP directory..."
-  # Both Desktop and Server ISOs place kernel/initrd under 'casper/'
-  cp -f "${MNT_DIR}/casper/vmlinuz" "${WWW_ROOT}/ubuntu/vmlinuz"
-  cp -f "${MNT_DIR}/casper/initrd"  "${WWW_ROOT}/ubuntu/initrd"
-  chown -R www-data:www-data "${WWW_ROOT}/ubuntu"
-  chmod 0644 "${WWW_ROOT}/ubuntu/vmlinuz" "${WWW_ROOT}/ubuntu/initrd"
-
-  echo "[*] Copying the same kernel/initrd to TFTP directory (optional fallback)..."
-  cp -f "${WWW_ROOT}/ubuntu/vmlinuz" "${TFTP_ROOT}/ubuntu/vmlinuz"
-  cp -f "${WWW_ROOT}/ubuntu/initrd"  "${TFTP_ROOT}/ubuntu/initrd"
-  chmod 0644 "${TFTP_ROOT}/ubuntu/vmlinuz" "${TFTP_ROOT}/ubuntu/initrd"
-
-  echo "[*] Unmounting ISO..."
-  umount "${MNT_DIR}" || true
+# Ensure autoinstall cloud-init files are present (if tracked in repo)
+if [ -f "www/autoinstall/user-data" ]; then
+  install -m 0644 -o www-data -g www-data "www/autoinstall/user-data" "${WWW_ROOT}/autoinstall/user-data"
+fi
+if [ -f "www/autoinstall/meta-data" ]; then
+  install -m 0644 -o www-data -g www-data "www/autoinstall/meta-data" "${WWW_ROOT}/autoinstall/meta-data"
 fi
 
-echo "[*] HTTP ubuntu/ contents:"
-ls -lh "${WWW_ROOT}/ubuntu" || true
+# --- Use existing kernel/initrd from local Ubuntu tree (no ISO download) ---
+CASPER_DIR="${WWW_ROOT}/ubuntu/casper"
 
+if [ -f "${CASPER_DIR}/vmlinuz" ] && [ -f "${CASPER_DIR}/initrd" ]; then
+  echo "[*] Found kernel/initrd under ${CASPER_DIR} – linking to /ubuntu/"
+  ln -sf "${CASPER_DIR}/vmlinuz" "${WWW_ROOT}/ubuntu/vmlinuz"
+  ln -sf "${CASPER_DIR}/initrd"  "${WWW_ROOT}/ubuntu/initrd"
+  chown -h www-data:www-data "${WWW_ROOT}/ubuntu/vmlinuz" "${WWW_ROOT}/ubuntu/initrd" || true
 
-# --- your existing blocks that put bootx64.efi, vmlinuz, initrd, autoinstall user-data/meta-data ---
-# (оставляю как есть, они у тебя уже работают)
+  echo "[*] Copy kernel/initrd to TFTP as optional fallback..."
+  mkdir -p "${TFTP_ROOT}/ubuntu"
+  cp -f "${CASPER_DIR}/vmlinuz" "${TFTP_ROOT}/ubuntu/vmlinuz"
+  cp -f "${CASPER_DIR}/initrd"  "${TFTP_ROOT}/ubuntu/initrd"
+  chmod 0644 "${TFTP_ROOT}/ubuntu/vmlinuz" "${TFTP_ROOT}/ubuntu/initrd" || true
+else
+  echo "[!] ${CASPER_DIR}/vmlinuz or initrd not found. Skipping symlinks."
+  echo "[!] HTTP /ubuntu/vmlinuz and /ubuntu/initrd will 404 until casper files exist."
+fi
+
+echo "[*] HTTP ubuntu/ contents (expect vmlinuz/initrd symlinks here):"
+ls -l "${WWW_ROOT}/ubuntu" || true
+
+# (Optional) Place UEFI shim/boot loader to serve HTTPBoot directly
+# Keep this as-is if you already have working files under ${WWW_ROOT}/EFI/BOOT/
+# If needed, uncomment the following lines:
+# if [ -f /usr/lib/shim/shimx64.efi.signed ] && [ -f /usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed ]; then
+#   install -m 0644 -o www-data -g www-data /usr/lib/shim/shimx64.efi.signed "${WWW_ROOT}/EFI/BOOT/bootx64.efi"
+#   install -m 0644 -o www-data -g www-data /usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed "${WWW_ROOT}/EFI/BOOT/grubx64.efi"
+# fi
 
 echo "[*] Restart services..."
 systemctl restart apache2
 systemctl restart dnsmasq || (journalctl -xeu dnsmasq.service --no-pager | tail -n 80; exit 1)
 
 echo "[*] Sanity checks (ports & HTTP endpoints)..."
+# Expect UDP :69 (TFTP) and :4011 (Proxy-DHCP). If empty, dnsmasq may still be OK (no TFTP/Proxy-DHCP enabled).
 ss -lunp | grep -E ':(69|4011)\b' || true
+
 curl -I "http://${HTTP_IP}/EFI/BOOT/bootx64.efi" || true
 curl -I "http://${HTTP_IP}/boot.ipxe" || true
 curl -I "http://${HTTP_IP}/ubuntu/vmlinuz" || true
+curl -I "http://${HTTP_IP}/ubuntu/initrd" || true
 curl -I "http://${HTTP_IP}/autoinstall/user-data" || true
+
 echo "[*] Done."
