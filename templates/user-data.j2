@@ -1,0 +1,90 @@
+#cloud-config
+autoinstall:
+  version: 1
+
+  # Minimal disk layout (use entire disk automatically)
+  storage:
+    layout: { name: direct }
+
+  locale: en_US.UTF-8
+  keyboard: { layout: us, variant: "" }
+  timezone: Etc/UTC
+
+  # Primary identity (Subiquity requires this). Password hash is provided from Vault.
+  identity:
+    hostname: lab-pc
+    username: sce
+    password: {{ vault_sce_password_hash | quote }}
+
+  # Minimal package set
+  packages:
+    - openssh-server
+
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  # Pass additional cloud-init to the target system
+  user-data:
+    users:
+      # Admin user (sudo without password)
+      - name: sce
+        gecos: Lab Admin
+        lock_passwd: false
+        passwd: {{ vault_sce_password_hash | quote }}
+        groups: [adm, sudo]
+        shell: /bin/bash
+
+      # Student user (no sudo)
+      - name: student
+        gecos: Lab Student (ephemeral)
+        lock_passwd: false
+        passwd: {{ vault_student_password_hash | quote }}
+        groups: [users]
+        shell: /bin/bash
+
+    write_files:
+      # Allow sce to run sudo without entering a password
+      - path: /etc/sudoers.d/90-sce-nopasswd
+        permissions: "0440"
+        owner: root:root
+        content: |
+          # sce can run any command without password
+          sce ALL=(ALL) NOPASSWD:ALL
+
+      # Explicitly deny sudo to student
+      - path: /etc/sudoers.d/90-student-nosudo
+        permissions: "0440"
+        owner: root:root
+        content: |
+          # student has no sudo rights
+          student ALL=(ALL) !ALL
+
+      # Make student's home ephemeral using tmpfs (clears on every reboot)
+      - path: /etc/fstab
+        append: true
+        content: |
+          tmpfs  /home/student  tmpfs  rw,nosuid,nodev,noexec,mode=0755,size=4G  0  0
+
+      # Ensure SSH allows password auth (for lab convenience)
+      - path: /etc/ssh/sshd_config.d/99-lab.conf
+        permissions: "0644"
+        owner: root:root
+        content: |
+          PasswordAuthentication yes
+          PermitEmptyPasswords no
+          ChallengeResponseAuthentication no
+          UsePAM yes
+
+    runcmd:
+      # Ensure student home exists, owned properly, and mounted as tmpfs now
+      - [ bash, -lc, "mkdir -p /home/student && chown -R student:student /home/student" ]
+      - [ bash, -lc, "mountpoint -q /home/student || mount /home/student || true" ]
+      # Make sure student is not in sudo (in case a default policy would add it)
+      - [ bash, -lc, "getent group sudo | grep -qw student && deluser student sudo || true" ]
+      # Reload SSH if our drop-in changed defaults
+      - [ bash, -lc, "systemctl reload ssh || systemctl restart ssh || true" ]
+
+  # Reboot automatically after install
+  reboot: true
+

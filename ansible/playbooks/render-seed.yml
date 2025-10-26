@@ -1,0 +1,32 @@
+---
+- name: Render NoCloud seed (user-data/meta-data) to PXE webroot
+  hosts: pxe
+  become: true
+  vars:
+    webroot: /var/www/html
+  tasks:
+    - name: Ensure autoinstall dir exists
+      file:
+        path: "{{ webroot }}/autoinstall"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Render user-data from template (Vault-backed)
+      template:
+        src: "{{ playbook_dir }}/../../templates/user-data.j2"
+        dest: "{{ webroot }}/autoinstall/user-data"
+        owner: www-data
+        group: www-data
+        mode: "0644"
+
+    - name: Ensure meta-data present
+      copy:
+        dest: "{{ webroot }}/autoinstall/meta-data"
+        owner: www-data
+        group: www-data
+        mode: "0644"
+        content: |
+          instance-id: lab-autoinstall
+

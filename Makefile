@@ -132,3 +132,6 @@ pxe-logs: ## Follow dnsmasq and apache2 logs (press Ctrl+C to stop)
 pxe-restart: ## Restart dnsmasq and apache2 services
 	sudo systemctl restart dnsmasq apache2
 	@echo "✓ Restarted dnsmasq & apache2 successfully"
+render-seed:
+	ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/render-seed.yml --ask-vault-pass
+
